@@ -1,91 +1,87 @@
 const std = @import("std");
 
-pub fn Tensor(comptime T: type) type {
-    if (@typeInfo(T) != .float)
-        @compileError("Scalar requires a floating-point type");
+pub fn Tensor(T: type) type {
+    if (@typeInfo(T) != .float) @compileError("Scalar requires a floating-point type");
 
     return struct {
         const Self = @This();
         const BackFn = *const fn (*Self) void;
-        val: T,
-        grad: T = 0,
-        lhs: ?*Self = null,
-        rhs: ?*Self = null,
-        extra: T = 0,
+
+        vals: []T,
+        grads: []T,
+        shape: []usize,
+        stride: []usize,
         back: ?BackFn,
 
-        pub fn init(allocator: std.mem.Allocator, val: T, lhs: ?*Self, rhs: ?*Self, extra: T, back: BackFn) !*Self {
+        pub fn init(allocator: std.mem.Allocator, shape: []const usize) !*Self {
+            if (shape.len == 0) {
+                std.debug.print("Vector requires a shape greater than 0\n", .{});
+                return error.ZeroShape;
+            }
             const s = try allocator.create(Self);
+            errdefer allocator.destroy(s);
+            const strides = try allocator.alloc(usize, shape.len);
+            errdefer allocator.free(strides);
+            const shapes = try allocator.alloc(usize, shape.len);
+            errdefer allocator.free(shapes);
+            var size: usize = 1;
+            for (0..shape.len) |i| {
+                const item = shape[i];
+                if (item == 0) {
+                    std.debug.print("0 Dimension in Tensor at index: {d}\n", .{i});
+                    return error.ZeroShape;
+                }
+                shapes[i] = item;
+                size *= item;
+            }
+            strides[shape.len - 1] = 1;
+            var i: usize = shape.len - 1;
+            while (i > 0) {
+                i -= 1;
+                strides[i] = strides[i + 1] * shape[i + 1];
+            }
+
+            const vals = try allocator.alloc(T, size);
+            errdefer allocator.free(vals);
+            @memset(vals, 0);
+            const grads = try allocator.alloc(T, size);
+            @memset(grads, 0);
+
             s.* = .{
-                .val = val,
-                .lhs = lhs,
-                .rhs = rhs,
-                .extra = extra,
-                .back = back,
+                .vals = vals,
+                .grads = grads,
+                .shape = shapes,
+                .stride = strides,
+                .back = null,
             };
+
             return s;
         }
-
-        pub fn constant(allocator: std.mem.Allocator, val: T) !*Self {
-            return init(
-                allocator,
-                val,
-                null,
-                null,
-                null,
-                null,
-            );
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            allocator.free(self.vals);
+            allocator.free(self.grads);
+            allocator.free(self.shape);
+            allocator.free(self.stride);
+            allocator.destroy(self);
         }
 
-        pub fn backAdd(self: *Self) void {
-            if (self.lhs) |lhs| {
-                if (self.rhs) |rhs| {
-                    lhs.grad += self.grad;
-                    rhs.grad += self.grad;
-                    return;
-                }
+        pub fn get(self: *Self, index: []const usize) T {
+            std.debug.assert(index.len == self.shape.len);
+            var idx: usize = 0;
+            for (0..self.stride.len) |i| {
+                std.debug.assert(index[i] < self.shape[i]);
+                idx += index[i] * self.stride[i];
             }
-            std.debug.assert(false);
+            return idx;
         }
-
-        pub fn backMul(self: *Self) void {
-            if (self.lhs) |lhs| {
-                if (self.rhs) |rhs| {
-                    lhs.grad += rhs.val * self.grad;
-                    rhs.grad += lhs.val * self.grad;
-                    return;
-                }
+        pub fn set(self: *Self, index: []const usize, val: T) void {
+            std.debug.assert(index.len == self.shape.len);
+            var idx: usize = 0;
+            for (0..self.stride.len) |i| {
+                std.debug.assert(index[i] < self.shape[i]);
+                idx += index[i] * self.stride[i];
             }
-            std.debug.assert(false);
-        }
-
-        pub fn backPow(self: *Self) void {
-            if (self.lhs) |lhs| {
-                if (self.rhs) |rhs| {
-                    lhs.grad += (rhs.val * std.math.pow(T, lhs.val, rhs.val - 1)) * self.grad;
-                    return;
-                }
-            }
-            std.debug.assert(false);
-        }
-
-        pub fn add(a: *Self, b: *Self, allocator: std.mem.Allocator) !*Self {
-            return init(allocator, a.val + b.val, a, b, 0, &backAdd);
-        }
-
-        pub fn mul(a: *Self, b: *Self, allocator: std.mem.Allocator) !*Self {
-            return init(allocator, a.val * b.val, a, b, 0, &backMul);
-        }
-
-        pub fn pow(a: *Self, exp: T, allocator: std.mem.Allocator) !*Self {
-            return init(
-                allocator,
-                std.math.pow(T, a.val, exp),
-                a,
-                null,
-                exp,
-                &backPow,
-            );
+            self.vals[idx] = val;
         }
     };
 }
