@@ -87,5 +87,57 @@ pub fn Tensor(T: type) type {
         pub inline fn fill(self: *Self, num: T) void {
             @memset(self.vals, num);
         }
+        pub inline fn fillOnes(self: *Self) void {
+            self.fill(1);
+        }
+        pub inline fn fillZeros(self: *Self) void {
+            self.fill(0);
+        }
+        ///(min,Max] Fills with random numbers exclusive of max
+        pub fn fillRandom(self: *Self, min: T, max: T) !void {
+            var prng: std.Random.DefaultPrng = .init(blk: {
+                var seed: u64 = undefined;
+                try std.posix.getrandom(std.mem.asBytes(&seed));
+                break :blk seed;
+            });
+            const rand = prng.random();
+            for (0..self.vals.len) |i| {
+                self.vals[i] = rand.intRangeAtMost(T, min, max);
+            }
+        }
+
+        ///Fills with Random Normal (Gaussian) numbers in the range of 0-1
+        pub fn fillNormal(self: *Self, stdDev: ?T, mean: ?T) !void {
+            var prng: std.Random.DefaultPrng = .init(blk: {
+                var seed: u64 = undefined;
+                try std.posix.getrandom(std.mem.asBytes(&seed));
+                break :blk seed;
+            });
+            const rand = prng.random();
+
+            if (stdDev != null and mean == null or mean != null and stdDev == null) {
+                std.debug.print("If stdDev is set mean must also be set and vice versa\n");
+                return error.InvalidInput;
+            }
+            if (stdDev) |dev| {
+                if (mean) |m| {
+                    for (0..self.vals.len) |i| {
+                        self.vals[i] = rand.floatNorm(T) * dev + m;
+                    }
+                    return;
+                }
+            }
+            for (0..self.vals.len) |i| {
+                self.vals[i] = rand.floatNorm(T) * stdDev + mean;
+            }
+        }
     };
+}
+
+pub fn tensorFromSlice(T: comptime_float, allocator: std.mem.Allocator, arr: []const T, shape: []const usize) !void {
+    const TENSOR = Tensor(T);
+    const tensor = try TENSOR.init(allocator, shape);
+    for (arr) |i| {
+        tensor.vals = i;
+    }
 }
