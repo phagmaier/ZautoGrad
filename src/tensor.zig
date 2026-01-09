@@ -43,7 +43,7 @@ pub fn Tensor(T: type) type {
 
             const vals = try allocator.alloc(T, size);
             errdefer allocator.free(vals);
-            @memset(vals, 0);
+            //@memset(vals, 0);
             const grads = try allocator.alloc(T, size);
             @memset(grads, 0);
 
@@ -65,14 +65,14 @@ pub fn Tensor(T: type) type {
             allocator.destroy(self);
         }
 
-        pub fn get(self: *Self, index: []const usize) T {
+        pub fn get(self: *const Self, index: []const usize) T {
             std.debug.assert(index.len == self.shape.len);
             var idx: usize = 0;
             for (0..self.stride.len) |i| {
                 std.debug.assert(index[i] < self.shape[i]);
                 idx += index[i] * self.stride[i];
             }
-            return idx;
+            return self.vals[idx];
         }
         pub fn set(self: *Self, index: []const usize, val: T) void {
             std.debug.assert(index.len == self.shape.len);
@@ -82,6 +82,10 @@ pub fn Tensor(T: type) type {
                 idx += index[i] * self.stride[i];
             }
             self.vals[idx] = val;
+        }
+
+        pub inline fn fill(self: *Self, num: T) void {
+            @memset(self.vals, num);
         }
     };
 }
