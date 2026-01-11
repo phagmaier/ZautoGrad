@@ -12,6 +12,7 @@ pub fn Tensor(T: type) type {
         shape: []usize,
         stride: []usize,
         back: ?BackFn,
+        parents: [2]?*Self,
 
         pub fn init(allocator: std.mem.Allocator, shape: []const usize) !*Self {
             if (shape.len == 0) {
@@ -53,6 +54,7 @@ pub fn Tensor(T: type) type {
                 .shape = shapes,
                 .stride = strides,
                 .back = null,
+                .parents = .{ null, null },
             };
 
             return s;
@@ -102,7 +104,7 @@ pub fn Tensor(T: type) type {
             });
             const rand = prng.random();
             for (0..self.vals.len) |i| {
-                self.vals[i] = rand.intRangeAtMost(T, min, max);
+                self.vals[i] = min + rand.float(T) * (max - min);
             }
         }
 
@@ -119,17 +121,16 @@ pub fn Tensor(T: type) type {
                 std.debug.print("If stdDev is set mean must also be set and vice versa\n");
                 return error.InvalidInput;
             }
-            if (stdDev) |dev| {
-                if (mean) |m| {
-                    for (0..self.vals.len) |i| {
-                        self.vals[i] = rand.floatNorm(T) * dev + m;
-                    }
-                    return;
-                }
-            }
+            const dev = stdDev orelse 1;
+            const m = mean orelse 0;
             for (0..self.vals.len) |i| {
-                self.vals[i] = rand.floatNorm(T) * stdDev + mean;
+                self.vals[i] = rand.floatNorm(T) * dev + m;
             }
+        }
+
+        pub fn add(l: *Self, r: *Self, allocator: std.mem.Allocator) *Self {
+            std.debug.assert(l.vals.len == r.vals.len);
+            child = Self.init(allocator, shape: []const usize)
         }
     };
 }
@@ -137,7 +138,7 @@ pub fn Tensor(T: type) type {
 pub fn tensorFromSlice(T: comptime_float, allocator: std.mem.Allocator, arr: []const T, shape: []const usize) !void {
     const TENSOR = Tensor(T);
     const tensor = try TENSOR.init(allocator, shape);
-    for (arr) |i| {
-        tensor.vals = i;
-    }
+    std.debug.assert(arr.len == tensor.vals.len);
+    @memcpy(tensor.vals, arr);
+    return tensor;
 }
